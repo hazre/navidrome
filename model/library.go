@@ -3,12 +3,17 @@ package model
 import (
 	"io/fs"
 	"os"
+	"time"
 )
 
 type Library struct {
-	ID   int32
-	Name string
-	Path string
+	ID         int32
+	Name       string
+	Path       string
+	RemotePath string
+	LastScanAt time.Time
+	UpdatedAt  time.Time
+	CreatedAt  time.Time
 }
 
 func (f Library) FS() fs.FS {
