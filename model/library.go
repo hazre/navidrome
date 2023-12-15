@@ -7,7 +7,7 @@ import (
 )
 
 type Library struct {
-	ID         int32
+	ID         int
 	Name       string
 	Path       string
 	RemotePath string
@@ -23,6 +23,7 @@ func (f Library) FS() fs.FS {
 type Libraries []Library
 
 type LibraryRepository interface {
-	Get(id int32) (*Library, error)
-	GetAll() (Libraries, error)
+	Get(id int) (*Library, error)
+	Put(*Library) error
+	GetAll(...QueryOptions) (Libraries, error)
 }
