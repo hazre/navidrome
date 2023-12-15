@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
@@ -31,22 +30,14 @@ func (api *Router) GetMusicFolders(r *http.Request) (*responses.Subsonic, error)
 
 func (api *Router) getArtistIndex(r *http.Request, libId int, ifModifiedSince time.Time) (*responses.Indexes, error) {
 	ctx := r.Context()
-	folder, err := api.ds.Library(ctx).Get(libId)
+	lib, err := api.ds.Library(ctx).Get(libId)
 	if err != nil {
 		log.Error(ctx, "Error retrieving Library", "id", libId, err)
 		return nil, err
 	}
 
-	l, err := api.ds.Property(ctx).DefaultGet(model.PropLastScan+"-"+folder.Path, "-1")
-	if err != nil {
-		log.Error(ctx, "Error retrieving LastScan property", err)
-		return nil, err
-	}
-
 	var indexes model.ArtistIndexes
-	ms, _ := strconv.ParseInt(l, 10, 64)
-	lastModified := utils.ToTime(ms)
-	if lastModified.After(ifModifiedSince) {
+	if lib.LastScanAt.After(ifModifiedSince) {
 		indexes, err = api.ds.Artist(ctx).GetIndex()
 		if err != nil {
 			log.Error(ctx, "Error retrieving Indexes", err)
@@ -56,7 +47,7 @@ func (api *Router) getArtistIndex(r *http.Request, libId int, ifModifiedSince ti
 
 	res := &responses.Indexes{
 		IgnoredArticles: conf.Server.IgnoredArticles,
-		LastModified:    utils.ToMillis(lastModified),
+		LastModified:    utils.ToMillis(lib.LastScanAt),
 	}
 
 	res.Index = make([]responses.Index, len(indexes))

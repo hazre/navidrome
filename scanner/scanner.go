@@ -3,8 +3,6 @@ package scanner
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -41,7 +39,10 @@ type FolderScanner interface {
 var isScanning sync.Mutex
 
 type scanner struct {
+	once        sync.Once
 	folders     map[string]FolderScanner
+	lastScans   map[string]time.Time
+	libIds      map[string]int
 	status      map[string]*scanStatus
 	lock        *sync.RWMutex
 	ds          model.DataStore
@@ -63,11 +64,12 @@ func New(ds model.DataStore, playlists core.Playlists, cacheWarmer artwork.Cache
 		pls:         playlists,
 		broker:      broker,
 		folders:     map[string]FolderScanner{},
+		lastScans:   map[string]time.Time{},
+		libIds:      map[string]int{},
 		status:      map[string]*scanStatus{},
 		lock:        &sync.RWMutex{},
 		cacheWarmer: cacheWarmer,
 	}
-	s.loadFolders()
 	return s
 }
 
@@ -80,7 +82,7 @@ func (s *scanner) rescan(ctx context.Context, library string, fullRescan bool) e
 
 	lastModifiedSince := time.Time{}
 	if !fullRescan {
-		lastModifiedSince = s.getLastModifiedSince(ctx, library)
+		lastModifiedSince = s.lastScans[library]
 		log.Debug("Scanning folder", "folder", library, "lastModifiedSince", lastModifiedSince)
 	} else {
 		log.Debug("Scanning folder (full scan)", "folder", library)
@@ -179,6 +181,8 @@ func (s *scanner) setStatusEnd(folder string, lastUpdate time.Time) {
 
 func (s *scanner) RescanAll(ctx context.Context, fullRescan bool) error {
 	ctx = context.WithoutCancel(ctx)
+	s.once.Do(s.loadFolders)
+
 	if !isScanning.TryLock() {
 		log.Debug(ctx, "Scanner already running, ignoring request for rescan.")
 		return ErrAlreadyScanning
@@ -200,6 +204,7 @@ func (s *scanner) RescanAll(ctx context.Context, fullRescan bool) error {
 }
 
 func (s *scanner) Status(library string) (*StatusInfo, error) {
+	s.once.Do(s.loadFolders)
 	status, ok := s.getStatus(library)
 	if !ok {
 		return nil, errors.New("library not found")
@@ -213,23 +218,12 @@ func (s *scanner) Status(library string) (*StatusInfo, error) {
 	}, nil
 }
 
-func (s *scanner) getLastModifiedSince(ctx context.Context, folder string) time.Time {
-	ms, err := s.ds.Property(ctx).Get(model.PropLastScan + "-" + folder)
-	if err != nil {
-		return time.Time{}
-	}
-	if ms == "" {
-		return time.Time{}
-	}
-	i, _ := strconv.ParseInt(ms, 10, 64)
-	return time.Unix(0, i*int64(time.Millisecond))
-}
-
 func (s *scanner) updateLastModifiedSince(folder string, t time.Time) {
-	millis := t.UnixNano() / int64(time.Millisecond)
-	if err := s.ds.Property(context.TODO()).Put(model.PropLastScan+"-"+folder, fmt.Sprint(millis)); err != nil {
+	id := s.libIds[folder]
+	if err := s.ds.Library(context.Background()).UpdateLastScan(id, t); err != nil {
 		log.Error("Error updating DB after scan", err)
 	}
+	s.lastScans[folder] = t
 }
 
 func (s *scanner) loadFolders() {
@@ -238,11 +232,13 @@ func (s *scanner) loadFolders() {
 	for _, f := range fs {
 		log.Info("Configuring Media Folder", "name", f.Name, "path", f.Path)
 		s.folders[f.Path] = s.newScanner(f)
+		s.lastScans[f.Path] = f.LastScanAt
+		s.libIds[f.Path] = f.ID
 		s.status[f.Path] = &scanStatus{
 			active:      false,
 			fileCount:   0,
 			folderCount: 0,
-			lastUpdate:  s.getLastModifiedSince(ctx, f.Path),
+			lastUpdate:  f.LastScanAt,
 		}
 	}
 }
