@@ -5,6 +5,7 @@ go 1.21
 require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/bradleyjkemp/cupaloy/v2 v2.8.0
+	github.com/charlievieth/fastwalk v1.0.1
 	github.com/deluan/rest v0.0.0-20211102003136-6260bc399cbf
 	github.com/deluan/sanitize v0.0.0-20230310221930-6e18967d9fc1
 	github.com/dexterlb/mpvipc v0.0.0-20230829142118-145d6eabdc37
