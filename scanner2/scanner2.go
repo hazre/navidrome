@@ -3,10 +3,12 @@ package scanner2
 import (
 	"context"
 	"io/fs"
+	"time"
 
 	"github.com/charlievieth/fastwalk"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/scanner"
 	"github.com/navidrome/navidrome/utils/pl"
 )
@@ -21,52 +23,89 @@ func New(ctx context.Context, ds model.DataStore) scanner.Scanner {
 }
 
 func (s *scanner2) RescanAll(ctx context.Context, fullRescan bool) error {
-	libs, err := s.ds.Library(s.ctx).GetAll()
+	ctx = request.AddValues(s.ctx)
+
+	libs, err := s.ds.Library(ctx).GetAll()
 	if err != nil {
 		return err
 	}
 
-	libsChan := pl.FromSlice(s.ctx, libs)
-	folderChan, folderErrChan := walkDirEntries(s.ctx, libsChan)
-	for folder := range folderChan {
-		log.Debug(s.ctx, "Scanner: Found folder", "folder", folder.Name())
-	}
+	startTime := time.Now()
+	log.Info(ctx, "Scanner: Starting scan", "fullRescan", fullRescan, "numLibraries", len(libs))
+	scanCtxChan := createScanContexts(ctx, libs)
+	folderChan, folderErrChan := walkDirEntries(ctx, scanCtxChan)
+	logErrChan := pl.Sink(ctx, 4, folderChan, func(ctx context.Context, folder *folderEntry) error {
+		log.Debug(ctx, "Scanner: Found folder", "folder", folder.Name(), "_path", folder.path, "audioCount", folder.audioFilesCount, "images", folder.images, "hasPlaylist", folder.hasPlaylists)
+		return nil
+	})
 
 	// Wait for pipeline to end, return first error found
-	for err := range pl.Merge(ctx, folderErrChan) {
+	for err := range pl.Merge(ctx, folderErrChan, logErrChan) {
 		return err
 	}
+
+	log.Info(ctx, "Scanner: Scan finished", "duration", time.Since(startTime))
 	return nil
 }
 
-func walkDirEntries(ctx context.Context, libsChan <-chan model.Library) (chan fastwalk.DirEntry, chan error) {
-	outputChannel := make(chan fastwalk.DirEntry)
+func createScanContexts(ctx context.Context, libs []model.Library) chan *scanContext {
+	outputChannel := make(chan *scanContext, len(libs))
+	go func() {
+		defer close(outputChannel)
+		for _, lib := range libs {
+			outputChannel <- newScannerContext(lib)
+		}
+	}()
+	return outputChannel
+}
+
+func walkDirEntries(ctx context.Context, libsChan <-chan *scanContext) (chan *folderEntry, chan error) {
+	outputChannel := make(chan *folderEntry)
 	errChannel := make(chan error)
 	go func() {
 		defer close(outputChannel)
 		defer close(errChannel)
-		errChan := pl.Sink(ctx, 1, libsChan, func(ctx context.Context, lib model.Library) error {
+		errChan := pl.Sink(ctx, 1, libsChan, func(ctx context.Context, scanCtx *scanContext) error {
 			conf := &fastwalk.Config{Follow: true}
-			return fastwalk.Walk(conf, lib.Path, func(path string, d fs.DirEntry, err error) error {
+			// lib.Path
+			err := fastwalk.Walk(conf, scanCtx.lib.Path, func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
-					log.Error(ctx, "Scanner: Error walking path", "lib", lib.Name, "path", path, err)
+					log.Warn(ctx, "Scanner: Error walking path", "lib", scanCtx.lib.Name, "path", path, err)
+					return nil
 				}
-				if d.IsDir() {
-					outputChannel <- d.(fastwalk.DirEntry)
+
+				// Skip non-directories
+				if !d.IsDir() {
+					return nil
 				}
+
+				// Load all pertinent info from directory
+				folder, _, err := loadDir(ctx, scanCtx, path, d.(fastwalk.DirEntry))
+				if err != nil {
+					log.Warn(ctx, "Scanner: Error loading dir", "lib", scanCtx.lib.Name, "path", path, err)
+					return nil
+				}
+				outputChannel <- folder
 				return nil
 			})
+			if err != nil {
+				log.Warn(ctx, "Scanner: Error scanning library", "lib", scanCtx.lib.Name, err)
+			}
+			return nil
 		})
 
 		// Wait for pipeline to end, and forward any errors
 		for err := range pl.ReadOrDone(ctx, errChan) {
-			errChannel <- err
+			select {
+			case errChannel <- err:
+			default:
+			}
 		}
 	}()
 	return outputChannel, errChannel
 }
 func (s *scanner2) Status(context.Context) (*scanner.StatusInfo, error) {
-	return nil, nil
+	return &scanner.StatusInfo{}, nil
 }
 
 //nolint:unused
