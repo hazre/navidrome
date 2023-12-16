@@ -87,7 +87,7 @@ func runNavidrome() {
 
 func startServer(ctx context.Context) func() error {
 	return func() error {
-		a := CreateServer(conf.Server.MusicFolder)
+		a := CreateServer()
 		a.MountRouter("Native API", consts.URLPathNativeAPI, CreateNativeAPIRouter())
 		a.MountRouter("Subsonic API", consts.URLPathSubsonicAPI, CreateSubsonicAPIRouter())
 		a.MountRouter("Public Endpoints", consts.URLPathPublic, CreatePublicRouter())

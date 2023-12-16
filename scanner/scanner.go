@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/log"
@@ -15,11 +16,10 @@ import (
 
 type Scanner interface {
 	RescanAll(ctx context.Context, fullRescan bool) error
-	Status(library string) (*StatusInfo, error)
+	Status(context.Context) (*StatusInfo, error)
 }
 
 type StatusInfo struct {
-	Library     string
 	Scanning    bool
 	LastScan    time.Time
 	Count       uint32
@@ -203,14 +203,13 @@ func (s *scanner) RescanAll(ctx context.Context, fullRescan bool) error {
 	return nil
 }
 
-func (s *scanner) Status(library string) (*StatusInfo, error) {
+func (s *scanner) Status(context.Context) (*StatusInfo, error) {
 	s.once.Do(s.loadFolders)
-	status, ok := s.getStatus(library)
+	status, ok := s.getStatus(conf.Server.MusicFolder)
 	if !ok {
 		return nil, errors.New("library not found")
 	}
 	return &StatusInfo{
-		Library:     library,
 		Scanning:    status.active,
 		LastScan:    status.lastUpdate,
 		Count:       status.fileCount,

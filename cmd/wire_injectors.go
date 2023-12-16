@@ -33,7 +33,7 @@ var allProviders = wire.NewSet(
 	db.Db,
 )
 
-func CreateServer(musicFolder string) *server.Server {
+func CreateServer() *server.Server {
 	panic(wire.Build(
 		server.New,
 		allProviders,
