@@ -14,16 +14,16 @@ import (
 )
 
 type scanner2 struct {
-	ctx context.Context
-	ds  model.DataStore
+	processCtx context.Context
+	ds         model.DataStore
 }
 
 func New(ctx context.Context, ds model.DataStore) scanner.Scanner {
-	return &scanner2{ctx: ctx, ds: ds}
+	return &scanner2{processCtx: ctx, ds: ds}
 }
 
-func (s *scanner2) RescanAll(ctx context.Context, fullRescan bool) error {
-	ctx = request.AddValues(s.ctx)
+func (s *scanner2) RescanAll(requestCtx context.Context, fullRescan bool) error {
+	ctx := request.AddValues(s.processCtx, requestCtx)
 
 	libs, err := s.ds.Library(ctx).GetAll()
 	if err != nil {
