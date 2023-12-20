@@ -47,6 +47,10 @@ func (db *MockDataStore) Library(context.Context) model.LibraryRepository {
 	return struct{ model.LibraryRepository }{}
 }
 
+func (db *MockDataStore) Folder(context.Context) model.FolderRepository {
+	return struct{ model.FolderRepository }{}
+}
+
 func (db *MockDataStore) Genre(context.Context) model.GenreRepository {
 	if db.MockedGenre == nil {
 		db.MockedGenre = &MockedGenreRepo{}

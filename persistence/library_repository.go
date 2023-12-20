@@ -52,7 +52,7 @@ const hardCodedMusicFolderID = 1
 
 func (r *libraryRepository) StoreMusicFolder() error {
 	sq := Update(r.tableName).Set("path", conf.Server.MusicFolder).Set("updated_at", time.Now()).
-		Where(Eq{"id": hardCodedMusicFolderID})
+		Set("extractor", conf.Server.Scanner.Extractor).Where(Eq{"id": hardCodedMusicFolderID})
 	_, err := r.executeSQL(sq)
 	return err
 }

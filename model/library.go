@@ -11,6 +11,7 @@ type Library struct {
 	Name       string
 	Path       string
 	RemotePath string
+	Extractor  string
 	LastScanAt time.Time
 	UpdatedAt  time.Time
 	CreatedAt  time.Time

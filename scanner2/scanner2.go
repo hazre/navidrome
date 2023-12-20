@@ -32,28 +32,46 @@ func (s *scanner2) RescanAll(requestCtx context.Context, fullRescan bool) error 
 
 	startTime := time.Now()
 	log.Info(ctx, "Scanner: Starting scan", "fullRescan", fullRescan, "numLibraries", len(libs))
-	scanCtxChan := createScanContexts(ctx, libs)
+
+	scanCtxChan := createScanContexts(ctx, s.ds, libs)
 	folderChan, folderErrChan := walkDirEntries(ctx, scanCtxChan)
-	logErrChan := pl.Sink(ctx, 4, folderChan, func(ctx context.Context, folder *folderEntry) error {
-		log.Debug(ctx, "Scanner: Found folder", "folder", folder.Name(), "_path", folder.path, "audioCount", folder.audioFilesCount, "images", folder.images, "hasPlaylist", folder.hasPlaylists)
+	changedFolderChan, changedFolderErrChan := pl.Filter(ctx, 4, folderChan, onlyOutdated(fullRescan))
+
+	// TODO Next: load tags from all files that are newer than or not in DB
+
+	logErrChan := pl.Sink(ctx, 4, changedFolderChan, func(ctx context.Context, folder *folderEntry) error {
+		log.Debug(ctx, "Scanner: Found folder", "folder", folder.Name(), "_path", folder.path,
+			"audioCount", len(folder.audioFiles), "imageCount", len(folder.imageFiles), "plsCount", len(folder.playlists))
 		return nil
 	})
 
 	// Wait for pipeline to end, return first error found
-	for err := range pl.Merge(ctx, folderErrChan, logErrChan) {
+	for err := range pl.Merge(ctx, folderErrChan, logErrChan, changedFolderErrChan) {
 		return err
 	}
 
-	log.Info(ctx, "Scanner: Scan finished", "duration", time.Since(startTime))
+	log.Info(ctx, "Scanner: Finished scanning all libraries", "duration", time.Since(startTime))
 	return nil
 }
 
-func createScanContexts(ctx context.Context, libs []model.Library) chan *scanContext {
+// onlyOutdated returns a filter function that returns true if the folder is outdated (needs to be scanned)
+func onlyOutdated(fullScan bool) func(ctx context.Context, entry *folderEntry) (bool, error) {
+	return func(ctx context.Context, entry *folderEntry) (bool, error) {
+		return fullScan || entry.isExpired(), nil
+	}
+}
+
+func createScanContexts(ctx context.Context, ds model.DataStore, libs []model.Library) chan *scanContext {
 	outputChannel := make(chan *scanContext, len(libs))
 	go func() {
 		defer close(outputChannel)
 		for _, lib := range libs {
-			outputChannel <- newScannerContext(lib)
+			scanCtx, err := newScannerContext(ctx, ds, lib)
+			if err != nil {
+				log.Error(ctx, "Scanner: Error creating scan context", "lib", lib.Name, err)
+				continue
+			}
+			outputChannel <- scanCtx
 		}
 	}()
 	return outputChannel

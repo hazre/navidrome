@@ -17,9 +17,10 @@ func upAddLibraryTable(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, `
 		create table library (
 			id integer primary key autoincrement,
-			name text not null unique,
-			path text not null unique,
-			remote_path text null default '',
+			name varchar not null unique,
+			path varchar not null unique,
+			remote_path varchar null default '',
+			extractor varchar null default 'taglib',
 			last_scan_at datetime not null default '0000-00-00 00:00:00',
 			updated_at datetime not null default current_timestamp,
 			created_at datetime not null default current_timestamp
@@ -29,9 +30,9 @@ func upAddLibraryTable(ctx context.Context, tx *sql.Tx) error {
 	}
 
 	_, err = tx.ExecContext(ctx, fmt.Sprintf(`
-		insert into library(id, name, path, last_scan_at) values(1, 'Music Library', '%s', current_timestamp);
+		insert into library(id, name, path, extractor, last_scan_at) values(1, 'Music Library', '%s', '%s', current_timestamp);
 		delete from property where id like 'LastScan-%%';
-`, conf.Server.MusicFolder))
+`, conf.Server.MusicFolder, conf.Server.Scanner.Extractor))
 	if err != nil {
 		return err
 	}

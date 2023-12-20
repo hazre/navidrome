@@ -11,21 +11,30 @@ import (
 	"github.com/charlievieth/fastwalk"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"golang.org/x/exp/slices"
 )
 
 type folderEntry struct {
 	fastwalk.DirEntry
-	path            string
 	scanCtx         *scanContext
-	modTime         time.Time
-	images          []string
+	path            string    // Full path
+	id              string    // DB ID
+	updTime         time.Time // From DB
+	modTime         time.Time // From FS
+	audioFiles      []fs.DirEntry
+	imageFiles      []fs.DirEntry
+	playlists       []fs.DirEntry
 	imagesUpdatedAt time.Time
-	hasPlaylists    bool
-	audioFilesCount uint32
+}
+
+func (f *folderEntry) isExpired() bool {
+	return f.updTime.Before(f.modTime)
 }
 
 func loadDir(ctx context.Context, scanCtx *scanContext, dirPath string, d fastwalk.DirEntry) (folder *folderEntry, children []string, err error) {
 	folder = &folderEntry{DirEntry: d, scanCtx: scanCtx, path: dirPath}
+	folder.id = model.FolderID(scanCtx.lib, dirPath)
+	folder.updTime = scanCtx.getLastUpdatedInDB(folder.id)
 
 	dirInfo, err := d.Stat()
 	if err != nil {
@@ -61,17 +70,20 @@ func loadDir(ctx context.Context, scanCtx *scanContext, dirPath string, d fastwa
 			}
 			switch {
 			case model.IsAudioFile(entry.Name()):
-				folder.audioFilesCount++
+				folder.audioFiles = append(folder.audioFiles, entry)
 			case model.IsValidPlaylist(entry.Name()):
-				folder.hasPlaylists = true
+				folder.playlists = append(folder.playlists, entry)
 			case model.IsImageFile(entry.Name()):
-				folder.images = append(folder.images, entry.Name())
+				folder.imageFiles = append(folder.imageFiles, entry)
 				if fileInfo.ModTime().After(folder.imagesUpdatedAt) {
 					folder.imagesUpdatedAt = fileInfo.ModTime()
 				}
 			}
 		}
 	}
+	slices.SortFunc(folder.audioFiles, func(i, j fs.DirEntry) bool { return i.Name() < j.Name() })
+	slices.SortFunc(folder.imageFiles, func(i, j fs.DirEntry) bool { return i.Name() < j.Name() })
+	slices.SortFunc(folder.playlists, func(i, j fs.DirEntry) bool { return i.Name() < j.Name() })
 	return folder, children, nil
 }
 
@@ -79,8 +91,8 @@ func loadDir(ctx context.Context, scanCtx *scanContext, dirPath string, d fastwa
 // It also detects when it is "stuck" with an error in the same directory over and over.
 // In this case, it stops and returns whatever it was able to read until it got stuck.
 // See discussion here: https://github.com/navidrome/navidrome/issues/1164#issuecomment-881922850
-func fullReadDir(ctx context.Context, dir fs.ReadDirFile) []os.DirEntry {
-	var allEntries []os.DirEntry
+func fullReadDir(ctx context.Context, dir fs.ReadDirFile) []fs.DirEntry {
+	var allEntries []fs.DirEntry
 	var prevErrStr = ""
 	for {
 		entries, err := dir.ReadDir(-1)
@@ -121,7 +133,7 @@ func isDirOrSymlinkToDir(baseDir string, dirEnt fs.DirEntry) (bool, error) {
 }
 
 // isDirReadable returns true if the directory represented by dirEnt is readable
-func isDirReadable(ctx context.Context, baseDir string, dirEnt os.DirEntry) bool {
+func isDirReadable(ctx context.Context, baseDir string, dirEnt fs.DirEntry) bool {
 	path := filepath.Join(baseDir, dirEnt.Name())
 
 	dir, err := os.Open(path)
