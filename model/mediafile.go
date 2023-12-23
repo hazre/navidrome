@@ -21,6 +21,9 @@ type MediaFile struct {
 	Bookmarkable `structs:"-"`
 
 	ID                   string  `structs:"id" json:"id"`
+	PID                  string  `structs:"pid" json:"pid"`
+	LibraryID            string  `structs:"library_id" json:"libraryId"`
+	FolderID             string  `structs:"folder_id" json:"folderId"`
 	Path                 string  `structs:"path" json:"path"`
 	Title                string  `structs:"title" json:"title"`
 	Album                string  `structs:"album" json:"album"`
@@ -29,6 +32,7 @@ type MediaFile struct {
 	AlbumArtistID        string  `structs:"album_artist_id" json:"albumArtistId"`
 	AlbumArtist          string  `structs:"album_artist" json:"albumArtist"`
 	AlbumID              string  `structs:"album_id" json:"albumId"`
+	AlbumPID             string  `structs:"album_pid" json:"albumPid"`
 	HasCoverArt          bool    `structs:"has_cover_art" json:"hasCoverArt"`
 	TrackNumber          int     `structs:"track_number" json:"trackNumber"`
 	DiscNumber           int     `structs:"disc_number" json:"discNumber"`
@@ -271,4 +275,5 @@ type MediaFileRepository interface {
 
 	AnnotatedRepository
 	BookmarkableRepository
+	GetByFolder(folderID string) (MediaFiles, error)
 }

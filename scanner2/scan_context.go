@@ -15,9 +15,10 @@ type scanContext struct {
 	startTime   time.Time
 	lastUpdates map[string]time.Time
 	lock        sync.RWMutex
+	fullRescan  bool
 }
 
-func newScannerContext(ctx context.Context, ds model.DataStore, lib model.Library) (*scanContext, error) {
+func newScannerContext(ctx context.Context, ds model.DataStore, lib model.Library, fullRescan bool) (*scanContext, error) {
 	lastUpdates, err := ds.Folder(ctx).GetLastUpdates(lib)
 	if err != nil {
 		return nil, fmt.Errorf("error getting last updates: %w", err)
@@ -27,6 +28,7 @@ func newScannerContext(ctx context.Context, ds model.DataStore, lib model.Librar
 		ds:          ds,
 		startTime:   time.Now(),
 		lastUpdates: lastUpdates,
+		fullRescan:  fullRescan,
 	}, nil
 }
 

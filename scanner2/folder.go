@@ -11,7 +11,6 @@ import (
 	"github.com/charlievieth/fastwalk"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
-	"golang.org/x/exp/slices"
 )
 
 type folderEntry struct {
@@ -21,8 +20,8 @@ type folderEntry struct {
 	id              string    // DB ID
 	updTime         time.Time // From DB
 	modTime         time.Time // From FS
-	audioFiles      []fs.DirEntry
-	imageFiles      []fs.DirEntry
+	audioFiles      map[string]fs.DirEntry
+	imageFiles      map[string]fs.DirEntry
 	playlists       []fs.DirEntry
 	imagesUpdatedAt time.Time
 }
@@ -35,6 +34,8 @@ func loadDir(ctx context.Context, scanCtx *scanContext, dirPath string, d fastwa
 	folder = &folderEntry{DirEntry: d, scanCtx: scanCtx, path: dirPath}
 	folder.id = model.FolderID(scanCtx.lib, dirPath)
 	folder.updTime = scanCtx.getLastUpdatedInDB(folder.id)
+	folder.audioFiles = make(map[string]fs.DirEntry)
+	folder.imageFiles = make(map[string]fs.DirEntry)
 
 	dirInfo, err := d.Stat()
 	if err != nil {
@@ -68,22 +69,20 @@ func loadDir(ctx context.Context, scanCtx *scanContext, dirPath string, d fastwa
 			if fileInfo.ModTime().After(folder.modTime) {
 				folder.modTime = fileInfo.ModTime()
 			}
+			filePath := filepath.Join(dirPath, entry.Name())
 			switch {
 			case model.IsAudioFile(entry.Name()):
-				folder.audioFiles = append(folder.audioFiles, entry)
+				folder.audioFiles[filePath] = entry
 			case model.IsValidPlaylist(entry.Name()):
 				folder.playlists = append(folder.playlists, entry)
 			case model.IsImageFile(entry.Name()):
-				folder.imageFiles = append(folder.imageFiles, entry)
+				folder.imageFiles[filePath] = entry
 				if fileInfo.ModTime().After(folder.imagesUpdatedAt) {
 					folder.imagesUpdatedAt = fileInfo.ModTime()
 				}
 			}
 		}
 	}
-	slices.SortFunc(folder.audioFiles, func(i, j fs.DirEntry) bool { return i.Name() < j.Name() })
-	slices.SortFunc(folder.imageFiles, func(i, j fs.DirEntry) bool { return i.Name() < j.Name() })
-	slices.SortFunc(folder.playlists, func(i, j fs.DirEntry) bool { return i.Name() < j.Name() })
 	return folder, children, nil
 }
 

@@ -222,6 +222,7 @@ func (t Tags) Channels() int               { return t.getInt("channels") }
 func (t Tags) ModificationTime() time.Time { return t.fileInfo.ModTime() }
 func (t Tags) Size() int64                 { return t.fileInfo.Size() }
 func (t Tags) FilePath() string            { return t.filePath }
+func (t Tags) Folder() string              { return path.Dir(t.filePath) }
 func (t Tags) Suffix() string              { return strings.ToLower(strings.TrimPrefix(path.Ext(t.filePath), ".")) }
 func (t Tags) BirthTime() time.Time {
 	if ts := times.Get(t.fileInfo); ts.HasBirthTime() {

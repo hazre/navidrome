@@ -109,6 +109,13 @@ func (r *mediaFileRepository) GetAll(options ...model.QueryOptions) (model.Media
 	return res, err
 }
 
+func (r *mediaFileRepository) GetByFolder(folderID string) (model.MediaFiles, error) {
+	sq := r.newSelect().Columns("*").Where(Eq{"folder_id": folderID})
+	res := model.MediaFiles{}
+	err := r.queryAll(sq, &res)
+	return res, err
+}
+
 func (r *mediaFileRepository) FindByPath(path string) (*model.MediaFile, error) {
 	sel := r.newSelect().Columns("*").Where(Like{"path": path})
 	var res model.MediaFiles

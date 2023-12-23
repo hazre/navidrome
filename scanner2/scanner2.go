@@ -11,6 +11,7 @@ import (
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/scanner"
 	"github.com/navidrome/navidrome/utils/pl"
+	"github.com/navidrome/navidrome/utils/slice"
 )
 
 type scanner2 struct {
@@ -33,20 +34,19 @@ func (s *scanner2) RescanAll(requestCtx context.Context, fullRescan bool) error 
 	startTime := time.Now()
 	log.Info(ctx, "Scanner: Starting scan", "fullRescan", fullRescan, "numLibraries", len(libs))
 
-	scanCtxChan := createScanContexts(ctx, s.ds, libs)
+	scanCtxChan := createScanContexts(ctx, s.ds, libs, fullRescan)
 	folderChan, folderErrChan := walkDirEntries(ctx, scanCtxChan)
-	changedFolderChan, changedFolderErrChan := pl.Filter(ctx, 4, folderChan, onlyOutdated(fullRescan))
+	changedFolderChan, changedFolderErrChan := pl.Filter(ctx, 4, folderChan, onlyOutdated)
+	processedFolderChan, processedFolderErrChan := pl.Stage(ctx, 4, changedFolderChan, processFolder)
 
-	// TODO Next: load tags from all files that are newer than or not in DB
-
-	logErrChan := pl.Sink(ctx, 4, changedFolderChan, func(ctx context.Context, folder *folderEntry) error {
+	logErrChan := pl.Sink(ctx, 4, processedFolderChan, func(ctx context.Context, folder *folderEntry) error {
 		log.Debug(ctx, "Scanner: Found folder", "folder", folder.Name(), "_path", folder.path,
 			"audioCount", len(folder.audioFiles), "imageCount", len(folder.imageFiles), "plsCount", len(folder.playlists))
 		return nil
 	})
 
 	// Wait for pipeline to end, return first error found
-	for err := range pl.Merge(ctx, folderErrChan, logErrChan, changedFolderErrChan) {
+	for err := range pl.Merge(ctx, folderErrChan, logErrChan, changedFolderErrChan, processedFolderErrChan) {
 		return err
 	}
 
@@ -54,19 +54,12 @@ func (s *scanner2) RescanAll(requestCtx context.Context, fullRescan bool) error 
 	return nil
 }
 
-// onlyOutdated returns a filter function that returns true if the folder is outdated (needs to be scanned)
-func onlyOutdated(fullScan bool) func(ctx context.Context, entry *folderEntry) (bool, error) {
-	return func(ctx context.Context, entry *folderEntry) (bool, error) {
-		return fullScan || entry.isExpired(), nil
-	}
-}
-
-func createScanContexts(ctx context.Context, ds model.DataStore, libs []model.Library) chan *scanContext {
+func createScanContexts(ctx context.Context, ds model.DataStore, libs []model.Library, fullRescan bool) chan *scanContext {
 	outputChannel := make(chan *scanContext, len(libs))
 	go func() {
 		defer close(outputChannel)
 		for _, lib := range libs {
-			scanCtx, err := newScannerContext(ctx, ds, lib)
+			scanCtx, err := newScannerContext(ctx, ds, lib, fullRescan)
 			if err != nil {
 				log.Error(ctx, "Scanner: Error creating scan context", "lib", lib.Name, err)
 				continue
@@ -122,12 +115,55 @@ func walkDirEntries(ctx context.Context, libsChan <-chan *scanContext) (chan *fo
 	}()
 	return outputChannel, errChannel
 }
+
+// onlyOutdated returns a filter function that returns true if the folder is outdated (needs to be scanned)
+func onlyOutdated(_ context.Context, entry *folderEntry) (bool, error) {
+	return entry.scanCtx.fullRescan || entry.isExpired(), nil
+}
+
+func processFolder(ctx context.Context, entry *folderEntry) (*folderEntry, error) {
+	// Load children mediafiles from DB
+	mfs, err := entry.scanCtx.ds.MediaFile(ctx).GetByFolder(entry.id)
+	if err != nil {
+		log.Warn(ctx, "Scanner: Error loading mediafiles from DB. Skipping", "folder", entry.path, err)
+		return entry, nil
+	}
+	dbTracks := slice.ToMap(mfs, func(mf model.MediaFile) (string, model.MediaFile) { return mf.Path, mf })
+
+	// Get list of files to import, leave dbTracks with tracks to be removed
+	var filesToImport []string
+	for afPath, af := range entry.audioFiles {
+		dbTrack, foundInDB := dbTracks[afPath]
+		if !foundInDB || entry.scanCtx.fullRescan {
+			filesToImport = append(filesToImport, afPath)
+		} else {
+			info, err := af.Info()
+			if err != nil {
+				log.Warn(ctx, "Scanner: Error getting file info", "folder", entry.path, "file", af.Name(), err)
+				return nil, err
+			}
+			if info.ModTime().After(dbTrack.UpdatedAt) {
+				filesToImport = append(filesToImport, afPath)
+			}
+		}
+		delete(dbTracks, afPath)
+	}
+	//tracksToRemove := dbTracks // Just to name things properly
+
+	// Load tags from files to import
+	// Add new/updated files to DB
+	// Remove deleted mediafiles from DB
+	// Update folder info in DB
+
+	return entry, nil
+}
+
 func (s *scanner2) Status(context.Context) (*scanner.StatusInfo, error) {
 	return &scanner.StatusInfo{}, nil
 }
 
 //nolint:unused
-func (s *scanner2) doScan(ctx context.Context, lib model.Library, fullRescan bool, folders <-chan string) error {
+func (s *scanner2) doScan(ctx context.Context, fullRescan bool, folders <-chan string) error {
 	return nil
 }
 
