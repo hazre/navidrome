@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charlievieth/fastwalk"
+	"github.com/google/go-pipeline/pkg/pipeline"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -34,128 +35,129 @@ func (s *scanner2) RescanAll(requestCtx context.Context, fullRescan bool) error 
 	startTime := time.Now()
 	log.Info(ctx, "Scanner: Starting scan", "fullRescan", fullRescan, "numLibraries", len(libs))
 
-	scanCtxChan := createScanContexts(ctx, s.ds, libs, fullRescan)
-	folderChan, folderErrChan := walkDirEntries(ctx, scanCtxChan)
-	changedFolderChan, changedFolderErrChan := pl.Filter(ctx, 4, folderChan, onlyOutdated)
-	processedFolderChan, processedFolderErrChan := pl.Stage(ctx, 4, changedFolderChan, processFolder)
+	err = s.runPipeline(
+		pipeline.NewProducer(s.produceFolders(ctx, libs, fullRescan), pipeline.Name("read folders from disk")),
+		pipeline.NewStage(s.processFolder(ctx), pipeline.Name("process folder")),
+		pipeline.NewStage(s.logFolder(ctx), pipeline.Name("log results")),
+	)
 
-	logErrChan := pl.Sink(ctx, 4, processedFolderChan, func(ctx context.Context, folder *folderEntry) error {
-		log.Debug(ctx, "Scanner: Found folder", "folder", folder.Name(), "_path", folder.path,
-			"audioCount", len(folder.audioFiles), "imageCount", len(folder.imageFiles), "plsCount", len(folder.playlists))
-		return nil
-	})
-
-	// Wait for pipeline to end, return first error found
-	for err := range pl.Merge(ctx, folderErrChan, logErrChan, changedFolderErrChan, processedFolderErrChan) {
-		return err
+	if err != nil {
+		log.Error(ctx, "Scanner: Error scanning libraries", "duration", time.Since(startTime), err)
+	} else {
+		log.Info(ctx, "Scanner: Finished scanning all libraries", "duration", time.Since(startTime))
 	}
-
-	log.Info(ctx, "Scanner: Finished scanning all libraries", "duration", time.Since(startTime))
-	return nil
+	return err
 }
 
-func createScanContexts(ctx context.Context, ds model.DataStore, libs []model.Library, fullRescan bool) chan *scanContext {
-	outputChannel := make(chan *scanContext, len(libs))
+func (s *scanner2) runPipeline(producer pipeline.Producer[*folderEntry], stages ...pipeline.Stage[*folderEntry]) error {
+	if log.CurrentLevel() >= log.LevelDebug {
+		metrics, err := pipeline.Measure(producer, stages...)
+		log.Trace(metrics.String())
+		return err
+	}
+	return pipeline.Do(producer, stages...)
+}
+
+func (s *scanner2) logFolder(ctx context.Context) func(folder *folderEntry) (out *folderEntry, err error) {
+	return func(folder *folderEntry) (out *folderEntry, err error) {
+		log.Debug(ctx, "Scanner: Found folder", "folder", folder.Name(), "_path", folder.path,
+			"audioCount", len(folder.audioFiles), "imageCount", len(folder.imageFiles), "plsCount", len(folder.playlists))
+		return folder, nil
+	}
+}
+
+func (s *scanner2) produceFolders(ctx context.Context, libs []model.Library, fullRescan bool) pipeline.ProducerFn[*folderEntry] {
+	scanCtxChan := make(chan *scanContext, len(libs))
 	go func() {
-		defer close(outputChannel)
+		defer close(scanCtxChan)
 		for _, lib := range libs {
-			scanCtx, err := newScannerContext(ctx, ds, lib, fullRescan)
+			scanCtx, err := newScannerContext(ctx, s.ds, lib, fullRescan)
 			if err != nil {
 				log.Error(ctx, "Scanner: Error creating scan context", "lib", lib.Name, err)
 				continue
 			}
-			outputChannel <- scanCtx
+			scanCtxChan <- scanCtx
 		}
 	}()
-	return outputChannel
-}
+	return func(put func(entry *folderEntry)) error {
+		outputChan := make(chan *folderEntry)
+		go func() {
+			defer close(outputChan)
+			for scanCtx := range pl.ReadOrDone(ctx, scanCtxChan) {
+				conf := &fastwalk.Config{Follow: true}
+				// lib.Path
+				err := fastwalk.Walk(conf, scanCtx.lib.Path, func(path string, d fs.DirEntry, err error) error {
+					if err != nil {
+						log.Warn(ctx, "Scanner: Error walking path", "lib", scanCtx.lib.Name, "path", path, err)
+						return nil
+					}
 
-func walkDirEntries(ctx context.Context, libsChan <-chan *scanContext) (chan *folderEntry, chan error) {
-	outputChannel := make(chan *folderEntry)
-	errChannel := make(chan error)
-	go func() {
-		defer close(outputChannel)
-		defer close(errChannel)
-		errChan := pl.Sink(ctx, 1, libsChan, func(ctx context.Context, scanCtx *scanContext) error {
-			conf := &fastwalk.Config{Follow: true}
-			// lib.Path
-			err := fastwalk.Walk(conf, scanCtx.lib.Path, func(path string, d fs.DirEntry, err error) error {
+					// Skip non-directories
+					if !d.IsDir() {
+						return nil
+					}
+
+					// Load all pertinent info from directory
+					folder, _, err := loadDir(ctx, scanCtx, path, d.(fastwalk.DirEntry))
+					if err != nil {
+						log.Warn(ctx, "Scanner: Error loading dir", "lib", scanCtx.lib.Name, "path", path, err)
+						return nil
+					}
+					outputChan <- folder
+					return nil
+				})
 				if err != nil {
-					log.Warn(ctx, "Scanner: Error walking path", "lib", scanCtx.lib.Name, "path", path, err)
-					return nil
+					log.Warn(ctx, "Scanner: Error scanning library", "lib", scanCtx.lib.Name, err)
 				}
-
-				// Skip non-directories
-				if !d.IsDir() {
-					return nil
-				}
-
-				// Load all pertinent info from directory
-				folder, _, err := loadDir(ctx, scanCtx, path, d.(fastwalk.DirEntry))
-				if err != nil {
-					log.Warn(ctx, "Scanner: Error loading dir", "lib", scanCtx.lib.Name, "path", path, err)
-					return nil
-				}
-				outputChannel <- folder
-				return nil
-			})
-			if err != nil {
-				log.Warn(ctx, "Scanner: Error scanning library", "lib", scanCtx.lib.Name, err)
 			}
-			return nil
-		})
-
-		// Wait for pipeline to end, and forward any errors
-		for err := range pl.ReadOrDone(ctx, errChan) {
-			select {
-			case errChannel <- err:
-			default:
-			}
+		}()
+		var total int
+		for folder := range pl.ReadOrDone(ctx, outputChan) {
+			total++
+			put(folder)
 		}
-	}()
-	return outputChannel, errChannel
+		log.Info(ctx, "Scanner: Finished loading all folders", "numFolders", total)
+		return nil
+	}
 }
 
-// onlyOutdated returns a filter function that returns true if the folder is outdated (needs to be scanned)
-func onlyOutdated(_ context.Context, entry *folderEntry) (bool, error) {
-	return entry.scanCtx.fullRescan || entry.isExpired(), nil
-}
+func (s *scanner2) processFolder(ctx context.Context) pipeline.StageFn[*folderEntry] {
+	return func(entry *folderEntry) (*folderEntry, error) {
+		// Load children mediafiles from DB
+		mfs, err := entry.scanCtx.ds.MediaFile(ctx).GetByFolder(entry.id)
+		if err != nil {
+			log.Warn(ctx, "Scanner: Error loading mediafiles from DB. Skipping", "folder", entry.path, err)
+			return entry, nil
+		}
+		dbTracks := slice.ToMap(mfs, func(mf model.MediaFile) (string, model.MediaFile) { return mf.Path, mf })
 
-func processFolder(ctx context.Context, entry *folderEntry) (*folderEntry, error) {
-	// Load children mediafiles from DB
-	mfs, err := entry.scanCtx.ds.MediaFile(ctx).GetByFolder(entry.id)
-	if err != nil {
-		log.Warn(ctx, "Scanner: Error loading mediafiles from DB. Skipping", "folder", entry.path, err)
+		// Get list of files to import, leave dbTracks with tracks to be removed
+		var filesToImport []string
+		for afPath, af := range entry.audioFiles {
+			dbTrack, foundInDB := dbTracks[afPath]
+			if !foundInDB || entry.scanCtx.fullRescan {
+				filesToImport = append(filesToImport, afPath)
+			} else {
+				info, err := af.Info()
+				if err != nil {
+					log.Warn(ctx, "Scanner: Error getting file info", "folder", entry.path, "file", af.Name(), err)
+					return nil, err
+				}
+				if info.ModTime().After(dbTrack.UpdatedAt) {
+					filesToImport = append(filesToImport, afPath)
+				}
+			}
+			delete(dbTracks, afPath)
+		}
+		//tracksToRemove := dbTracks // Just to name things properly
+
+		// Load tags from files to import
+		// Add new/updated files to DB
+		// Remove deleted mediafiles from DB
+		// Update folder info in DB
+
 		return entry, nil
 	}
-	dbTracks := slice.ToMap(mfs, func(mf model.MediaFile) (string, model.MediaFile) { return mf.Path, mf })
-
-	// Get list of files to import, leave dbTracks with tracks to be removed
-	var filesToImport []string
-	for afPath, af := range entry.audioFiles {
-		dbTrack, foundInDB := dbTracks[afPath]
-		if !foundInDB || entry.scanCtx.fullRescan {
-			filesToImport = append(filesToImport, afPath)
-		} else {
-			info, err := af.Info()
-			if err != nil {
-				log.Warn(ctx, "Scanner: Error getting file info", "folder", entry.path, "file", af.Name(), err)
-				return nil, err
-			}
-			if info.ModTime().After(dbTrack.UpdatedAt) {
-				filesToImport = append(filesToImport, afPath)
-			}
-		}
-		delete(dbTracks, afPath)
-	}
-	//tracksToRemove := dbTracks // Just to name things properly
-
-	// Load tags from files to import
-	// Add new/updated files to DB
-	// Remove deleted mediafiles from DB
-	// Update folder info in DB
-
-	return entry, nil
 }
 
 func (s *scanner2) Status(context.Context) (*scanner.StatusInfo, error) {
