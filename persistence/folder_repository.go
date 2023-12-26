@@ -55,7 +55,7 @@ func (r folderRepository) GetLastUpdates(lib model.Library) (map[string]time.Tim
 
 func (r folderRepository) Put(lib model.Library, path string) error {
 	folder := model.NewFolder(lib, path)
-	_, err := r.put(folder.ID, folder)
+	_, err := r.put("id", folder.ID, folder)
 	return err
 }
 

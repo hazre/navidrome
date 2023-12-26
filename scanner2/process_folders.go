@@ -50,35 +50,41 @@ func processFolder(ctx context.Context) pipeline.StageFn[*folderEntry] {
 		// Remaining dbTracks are tracks that were not found in the folder, so they should be marked as missing
 		entry.missingTracks = maps.Values(dbTracks)
 
-		entry.tracks, err = loadTagsFromFiles(ctx, entry, filesToImport)
-		if err != nil {
-			log.Warn(ctx, "Scanner: Error loading tags from files. Skipping", "folder", entry.path, err)
-			return entry, nil
-		}
+		if len(filesToImport) > 0 {
+			entry.tracks, entry.tags, err = loadTagsFromFiles(ctx, entry, filesToImport)
+			if err != nil {
+				log.Warn(ctx, "Scanner: Error loading tags from files. Skipping", "folder", entry.path, err)
+				return entry, nil
+			}
 
-		entry.albums = loadAlbumsFromTags(ctx, entry)
-		entry.artists = loadArtistsFromTags(ctx, entry)
+			entry.albums = loadAlbumsFromTags(ctx, entry)
+			entry.artists = loadArtistsFromTags(ctx, entry)
+		}
 
 		return entry, nil
 	}
 }
 
-func loadTagsFromFiles(ctx context.Context, entry *folderEntry, toImport []string) (model.MediaFiles, error) {
+func loadTagsFromFiles(ctx context.Context, entry *folderEntry, toImport []string) (model.MediaFiles, model.FlattenedTags, error) {
 	tracks := model.MediaFiles{}
+	uniqueTags := make(map[string]model.Tag)
 	mapper := newMediaFileMapper(entry)
 	err := slice.RangeByChunks(toImport, filesBatchSize, func(chunk []string) error {
-		allTags, err := metadata.Extract(toImport...)
+		allFileTags, err := metadata.Extract(toImport...)
 		if err != nil {
 			log.Warn(ctx, "Scanner: Error extracting tags from files. Skipping", "folder", entry.path, err)
 			return err
 		}
-		for _, tags := range allTags {
-			track := mapper.toMediaFile(tags)
+		for _, fileTags := range allFileTags {
+			track := mapper.toMediaFile(fileTags)
 			tracks = append(tracks, track)
+			for _, t := range track.Tags.FlattenAll() {
+				uniqueTags[t.ID] = t
+			}
 		}
 		return nil
 	})
-	return tracks, err
+	return tracks, maps.Values(uniqueTags), err
 }
 
 func loadAlbumsFromTags(ctx context.Context, entry *folderEntry) model.Albums {

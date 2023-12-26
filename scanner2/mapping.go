@@ -16,12 +16,12 @@ import (
 )
 
 type mediaFileMapper struct {
-	rootFolder string
+	entry *folderEntry
 }
 
 func newMediaFileMapper(entry *folderEntry) *mediaFileMapper {
 	return &mediaFileMapper{
-		rootFolder: entry.path,
+		entry: entry,
 	}
 }
 
@@ -74,6 +74,10 @@ func (s mediaFileMapper) toMediaFile(md metadata.Tags) model.MediaFile {
 	mf.Bpm = md.Bpm()
 	mf.CreatedAt = md.BirthTime()
 	mf.UpdatedAt = md.ModificationTime()
+	mf.Tags = md.ModelTags()
+	mf.FolderID = s.entry.id
+	mf.LibraryID = s.entry.scanCtx.lib.ID
+	mf.PID = mf.ID
 
 	return *mf
 }
@@ -85,7 +89,7 @@ func sanitizeFieldForSorting(originalValue string) string {
 
 func (s mediaFileMapper) mapTrackTitle(md metadata.Tags) string {
 	if md.Title() == "" {
-		s := strings.TrimPrefix(md.FilePath(), s.rootFolder+string(os.PathSeparator))
+		s := strings.TrimPrefix(md.FilePath(), s.entry.path+string(os.PathSeparator))
 		e := filepath.Ext(s)
 		return strings.TrimSuffix(s, e)
 	}

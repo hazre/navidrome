@@ -231,7 +231,7 @@ func (t Tags) BirthTime() time.Time {
 	return time.Now()
 }
 
-// ReplayGain Properties
+// ReplayGain Properties TODO: check rg_* tags
 
 func (t Tags) RGAlbumGain() float64 { return t.getGainValue("replaygain_album_gain") }
 func (t Tags) RGAlbumPeak() float64 { return t.getPeakValue("replaygain_album_peak") }
@@ -384,4 +384,69 @@ func (t Tags) getFloat(tagNames ...string) float64 {
 		return 0
 	}
 	return value
+}
+
+// We exclude all tags that are already first-class citizens in the model
+var excludedTags = map[string]struct{}{
+	"duration":     {},
+	"bitrate":      {},
+	"channels":     {},
+	"bpm":          {},
+	"has_picture":  {},
+	"title":        {},
+	"album":        {},
+	"artist":       {},
+	"artists":      {},
+	"albumartist":  {},
+	"albumartists": {},
+	"track":        {},
+	"tracknumber":  {},
+	"tracktotal":   {},
+	"totaltracks":  {},
+	"disc":         {},
+	"discnumber":   {},
+	"disctotal":    {},
+	"totaldiscs":   {},
+	"lyrics":       {},
+	"year":         {},
+	"date":         {},
+	"originaldate": {},
+	"releasedate":  {},
+	"comment":      {},
+}
+
+// Also exclude any tag that starts with one of these prefixes
+var excludedPrefixes = []string{
+	"musicbrainz",
+	"replaygain",
+	"sort",
+}
+
+func isExcludedTag(tagName string) bool {
+	if _, ok := excludedTags[tagName]; ok {
+		return true
+	}
+	for _, prefix := range excludedPrefixes {
+		if strings.HasPrefix(tagName, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (t Tags) ModelTags() model.Tags {
+	models := model.Tags{}
+	for tagName, values := range t.tags {
+		if isExcludedTag(tagName) {
+			continue
+		}
+
+		for _, value := range values {
+			if value == "" {
+				continue
+			}
+			models[tagName] = append(models[tagName], value)
+		}
+	}
+	return models
 }

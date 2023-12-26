@@ -34,6 +34,7 @@ func (s *scanner2) RescanAll(requestCtx context.Context, fullRescan bool) error 
 	err = s.runPipeline(
 		pipeline.NewProducer(produceFolders(ctx, s.ds, libs, fullRescan), pipeline.Name("read folders from disk")),
 		pipeline.NewStage(processFolder(ctx), pipeline.Name("process folder")),
+		pipeline.NewStage(persistChanges(ctx), pipeline.Name("persist changes")),
 		pipeline.NewStage(logFolder(ctx), pipeline.Name("log results")),
 	)
 

@@ -20,6 +20,7 @@ type folderEntry struct {
 	tracks          model.MediaFiles
 	albums          model.Albums
 	artists         model.Artists
+	tags            model.FlattenedTags
 	missingTracks   model.MediaFiles
 }
 
