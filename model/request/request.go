@@ -92,7 +92,7 @@ func AddValues(ctx, requestCtx context.Context) context.Context {
 		ClientUniqueId,
 	}
 	for _, key := range keys {
-		if v, ok := requestCtx.Value(key).(string); ok {
+		if v := requestCtx.Value(key); v != nil {
 			ctx = context.WithValue(ctx, key, v)
 		}
 	}

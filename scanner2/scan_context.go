@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/navidrome/navidrome/model"
@@ -16,6 +17,7 @@ type scanContext struct {
 	lastUpdates map[string]time.Time
 	lock        sync.RWMutex
 	fullRescan  bool
+	numFolders  atomic.Int64
 }
 
 func newScannerContext(ctx context.Context, ds model.DataStore, lib model.Library, fullRescan bool) (*scanContext, error) {
