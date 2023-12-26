@@ -3,6 +3,8 @@ package scanner2
 import (
 	"io/fs"
 	"time"
+
+	"github.com/navidrome/navidrome/model"
 )
 
 type folderEntry struct {
@@ -15,6 +17,10 @@ type folderEntry struct {
 	imageFiles      map[string]fs.DirEntry
 	playlists       []fs.DirEntry
 	imagesUpdatedAt time.Time
+	tracks          model.MediaFiles
+	albums          model.Albums
+	artists         model.Artists
+	missingTracks   model.MediaFiles
 }
 
 func (f *folderEntry) isExpired() bool {
