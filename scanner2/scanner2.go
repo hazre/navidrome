@@ -32,9 +32,9 @@ func (s *scanner2) RescanAll(requestCtx context.Context, fullRescan bool) error 
 	log.Info(ctx, "Scanner: Starting scan", "fullRescan", fullRescan, "numLibraries", len(libs))
 
 	err = s.runPipeline(
-		pipeline.NewProducer(s.produceFolders(ctx, libs, fullRescan), pipeline.Name("read folders from disk")),
-		pipeline.NewStage(s.processFolder(ctx), pipeline.Name("process folder")),
-		pipeline.NewStage(s.logFolder(ctx), pipeline.Name("log results")),
+		pipeline.NewProducer(produceFolders(ctx, s.ds, libs, fullRescan), pipeline.Name("read folders from disk")),
+		pipeline.NewStage(processFolder(ctx), pipeline.Name("process folder")),
+		pipeline.NewStage(logFolder(ctx), pipeline.Name("log results")),
 	)
 
 	if err != nil {
@@ -54,7 +54,7 @@ func (s *scanner2) runPipeline(producer pipeline.Producer[*folderEntry], stages 
 	return pipeline.Do(producer, stages...)
 }
 
-func (s *scanner2) logFolder(ctx context.Context) func(folder *folderEntry) (out *folderEntry, err error) {
+func logFolder(ctx context.Context) func(folder *folderEntry) (out *folderEntry, err error) {
 	return func(folder *folderEntry) (out *folderEntry, err error) {
 		log.Debug(ctx, "Scanner: Completed processing folder", "_path", folder.path,
 			"audioCount", len(folder.audioFiles), "imageCount", len(folder.imageFiles), "plsCount", len(folder.playlists))

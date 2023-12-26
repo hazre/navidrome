@@ -17,12 +17,12 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-func (s *scanner2) produceFolders(ctx context.Context, libs []model.Library, fullRescan bool) pipeline.ProducerFn[*folderEntry] {
+func produceFolders(ctx context.Context, ds model.DataStore, libs []model.Library, fullRescan bool) pipeline.ProducerFn[*folderEntry] {
 	scanCtxChan := make(chan *scanContext, len(libs))
 	go func() {
 		defer close(scanCtxChan)
 		for _, lib := range libs {
-			scanCtx, err := newScannerContext(ctx, s.ds, lib, fullRescan)
+			scanCtx, err := newScannerContext(ctx, ds, lib, fullRescan)
 			if err != nil {
 				log.Error(ctx, "Scanner: Error creating scan context", "lib", lib.Name, err)
 				continue

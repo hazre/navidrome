@@ -17,7 +17,7 @@ const (
 	filesBatchSize = 100
 )
 
-func (s *scanner2) processFolder(ctx context.Context) pipeline.StageFn[*folderEntry] {
+func processFolder(ctx context.Context) pipeline.StageFn[*folderEntry] {
 	return func(entry *folderEntry) (*folderEntry, error) {
 		// Load children mediafiles from DB
 		mfs, err := entry.scanCtx.ds.MediaFile(ctx).GetByFolder(entry.id)
