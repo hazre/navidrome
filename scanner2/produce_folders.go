@@ -75,6 +75,9 @@ func walkFolder(ctx context.Context, scanCtx *scanContext, currentFolder string,
 		}
 	}
 
+	if !folder.isExpired() && !scanCtx.fullRescan {
+		return nil
+	}
 	dir := filepath.Clean(currentFolder)
 	log.Trace(ctx, "Scanner: Found directory", "_path", dir, "audioFiles", maps.Keys(folder.audioFiles),
 		"images", maps.Keys(folder.imageFiles), "playlists", folder.playlists, "imagesUpdatedAt", folder.imagesUpdatedAt,
