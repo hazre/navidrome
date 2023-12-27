@@ -39,6 +39,9 @@ func (r *sqlRepository) updateTags(itemID string, tags model.Tags) error {
 	if err != nil {
 		return err
 	}
+	if len(tags) == 0 {
+		return nil
+	}
 	sqi := Insert("item_tags").Columns("item_id", "item_type", "tag_name", "tag_id").
 		Suffix("on conflict (item_id, item_type, tag_id) do nothing")
 	for name, values := range tags {

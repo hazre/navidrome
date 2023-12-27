@@ -451,7 +451,7 @@ func isExcludedTag(tagName string) bool {
 
 func (t Tags) ModelTags() model.Tags {
 	models := model.Tags{}
-	for tagName, values := range t.tags {
+	for tagName, values := range t.Tags {
 		if isExcludedTag(tagName) {
 			continue
 		}

@@ -65,7 +65,8 @@ func walkDirTree(ctx context.Context, scanCtx *scanContext) (<-chan *folderEntry
 func walkFolder(ctx context.Context, scanCtx *scanContext, currentFolder string, results chan<- *folderEntry) error {
 	folder, children, err := loadDir(ctx, scanCtx, currentFolder)
 	if err != nil {
-		return err
+		log.Warn(ctx, "Scanner: Error loading dir. Skipping", "path", currentFolder, err)
+		return nil
 	}
 	scanCtx.numFolders.Add(1)
 	for _, c := range children {
@@ -97,23 +98,26 @@ func loadDir(ctx context.Context, scanCtx *scanContext, dirPath string) (folder 
 
 	dirInfo, err := os.Stat(dirPath)
 	if err != nil {
-		log.Error(ctx, "Scanner: Error stating dir", "path", dirPath, err)
+		log.Warn(ctx, "Scanner: Error stating dir", "path", dirPath, err)
 		return nil, nil, err
 	}
 	folder.modTime = dirInfo.ModTime()
 
 	dir, err := os.Open(dirPath)
 	if err != nil {
-		log.Error(ctx, "Scanner: Error in Opening directory", "path", dirPath, err)
+		log.Warn(ctx, "Scanner: Error in Opening directory", "path", dirPath, err)
 		return folder, children, err
 	}
 	defer dir.Close()
 
 	for _, entry := range fullReadDir(ctx, dir) {
+		if ctx.Err() != nil {
+			return folder, children, ctx.Err()
+		}
 		isDir, err := isDirOrSymlinkToDir(dirPath, entry)
 		// Skip invalid symlinks
 		if err != nil {
-			log.Error(ctx, "Scanner: Invalid symlink", "dir", filepath.Join(dirPath, entry.Name()), err)
+			log.Warn(ctx, "Scanner: Invalid symlink", "dir", filepath.Join(dirPath, entry.Name()), err)
 			continue
 		}
 		if isDir && !isDirIgnored(dirPath, entry) && isDirReadable(ctx, dirPath, entry) {
@@ -121,7 +125,7 @@ func loadDir(ctx context.Context, scanCtx *scanContext, dirPath string) (folder 
 		} else {
 			fileInfo, err := entry.Info()
 			if err != nil {
-				log.Error(ctx, "Scanner: Error getting fileInfo", "name", entry.Name(), err)
+				log.Warn(ctx, "Scanner: Error getting fileInfo", "name", entry.Name(), err)
 				return folder, children, err
 			}
 			if fileInfo.ModTime().After(folder.modTime) {
@@ -151,6 +155,9 @@ func fullReadDir(ctx context.Context, dir fs.ReadDirFile) []fs.DirEntry {
 	var allEntries []fs.DirEntry
 	var prevErrStr = ""
 	for {
+		if ctx.Err() != nil {
+			return []fs.DirEntry{}
+		}
 		entries, err := dir.ReadDir(-1)
 		allEntries = append(allEntries, entries...)
 		if err == nil {
