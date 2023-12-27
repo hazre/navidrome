@@ -23,9 +23,7 @@ create table if not exists folder(
 	name varchar default '' not null,
 	updated_at timestamp default current_timestamp not null,
 	created_at timestamp default current_timestamp not null,
-	parent_id varchar default null
-		references folder (id)
-		 	on delete cascade
+	parent_id varchar default '' not null
 );
 
 alter table media_file 

@@ -31,12 +31,22 @@ func persistChanges(ctx context.Context) pipeline.StageFn[*folderEntry] {
 					track := chunk[i]
 					err = tx.MediaFile(ctx).Put(&track)
 					if err != nil {
-						log.Error(ctx, "Scanner: Error adding mediafile to DB", "folder", entry.path, "track", track, err)
+						log.Error(ctx, "Scanner: Error adding/updating mediafile to DB", "folder", entry.path, "track", track, err)
 						return err
 					}
 				}
 				return nil
 			})
+			if err != nil {
+				return err
+			}
+
+			// Save folder to DB
+			err = tx.Folder(ctx).Put(entry.scanCtx.lib, entry.path)
+			if err != nil {
+				log.Error(ctx, "Scanner: Error adding/updating folder to DB", "folder", entry.path, err)
+				return err
+			}
 			return err
 		})
 		if err != nil {

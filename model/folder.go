@@ -9,13 +9,13 @@ import (
 )
 
 type Folder struct {
-	ID        string
-	LibraryID int
-	Path      string
-	Name      string
-	ParentID  string
-	UpdateAt  time.Time
-	CreatedAt time.Time
+	ID        string    `structs:"id"`
+	LibraryID int       `structs:"library_id"`
+	Path      string    `structs:"path"`
+	Name      string    `structs:"name"`
+	ParentID  string    `structs:"parent_id"`
+	UpdateAt  time.Time `structs:"updated_at"`
+	CreatedAt time.Time `structs:"created_at"`
 }
 
 func FolderID(lib Library, path string) string {
@@ -26,10 +26,22 @@ func FolderID(lib Library, path string) string {
 func NewFolder(lib Library, path string) *Folder {
 	id := FolderID(lib, path)
 	dir, name := filepath.Split(path)
+	dir = filepath.Clean(dir)
+	var parentID string
+	if dir == "." {
+		dir = ""
+		parentID = ""
+	} else {
+		parentID = FolderID(lib, dir)
+	}
 	return &Folder{
-		ID:   id,
-		Path: dir,
-		Name: name,
+		LibraryID: lib.ID,
+		ID:        id,
+		Path:      dir,
+		Name:      name,
+		ParentID:  parentID,
+		UpdateAt:  time.Now(),
+		CreatedAt: time.Now(),
 	}
 }
 
