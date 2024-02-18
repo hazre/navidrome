@@ -27,7 +27,7 @@ func processFolder(ctx context.Context) pipeline.StageFn[*folderEntry] {
 		}
 		dbTracks := slice.ToMap(mfs, func(mf model.MediaFile) (string, model.MediaFile) { return mf.Path, mf })
 
-		// Get list of files to import, leave dbTracks with tracks to be removed
+		// Get list of files to import, leave in dbTracks only tracks that are missing
 		var filesToImport []string
 		for afPath, af := range entry.audioFiles {
 			fullPath := filepath.Join(entry.path, afPath)

@@ -31,6 +31,7 @@ func produceFolders(ctx context.Context, ds model.DataStore, libs []model.Librar
 		}
 	}()
 	return func(put func(entry *folderEntry)) error {
+		// TODO Parallelize multiple scanCtx
 		var total int64
 		for scanCtx := range pl.ReadOrDone(ctx, scanCtxChan) {
 			outputChan, err := walkDirTree(ctx, scanCtx)
@@ -76,7 +77,7 @@ func walkFolder(ctx context.Context, scanCtx *scanContext, currentFolder string,
 		}
 	}
 
-	if !folder.isExpired() && !scanCtx.fullRescan {
+	if !folder.isOutdated() && !scanCtx.fullRescan {
 		return nil
 	}
 	dir := filepath.Clean(currentFolder)

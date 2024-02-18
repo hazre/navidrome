@@ -47,9 +47,9 @@ func (s *scanner2) RescanAll(requestCtx context.Context, fullRescan bool) error 
 }
 
 func (s *scanner2) runPipeline(producer pipeline.Producer[*folderEntry], stages ...pipeline.Stage[*folderEntry]) error {
-	if log.CurrentLevel() >= log.LevelDebug {
+	if log.IsGreaterOrEqualTo(log.LevelDebug) {
 		metrics, err := pipeline.Measure(producer, stages...)
-		log.Trace(metrics.String())
+		log.Info(metrics.String(), err)
 		return err
 	}
 	return pipeline.Do(producer, stages...)

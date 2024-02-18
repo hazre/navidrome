@@ -24,6 +24,6 @@ type folderEntry struct {
 	missingTracks   model.MediaFiles
 }
 
-func (f *folderEntry) isExpired() bool {
+func (f *folderEntry) isOutdated() bool {
 	return f.updTime.Before(f.modTime)
 }
